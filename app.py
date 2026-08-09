@@ -1,4 +1,3 @@
-
 """
 ValueScout -- Streamlit app
 
@@ -12,7 +11,7 @@ import streamlit as st
 from statistics import median, mean
 
 from scrapers.tunisianet import search_tunisianet
-from features import CHECKLIST, extract_features
+from features import get_checklist, detect_category, extract_features
 
 
 st.set_page_config(page_title="ValueScout", page_icon="🔎", layout="centered")
@@ -27,14 +26,23 @@ query = st.text_input(
     help="Searches Tunisianet directly -- try French or English terms.",
 )
 
-st.write("What matters to you? (check as many as apply)")
+# The checklist shown depends on what category the search term looks
+# like -- "casque bluetooth" shows headphone checkboxes, "souris"
+# shows mouse checkboxes, etc. See features.py CATEGORY_DETECTION.
+detected_category = detect_category(query) if query else None
+checklist = get_checklist(detected_category)
+
 selected_features = []
-cols = st.columns(2)
-checklist_items = list(CHECKLIST.items())
-for i, (key, info) in enumerate(checklist_items):
-    col = cols[i % 2]
-    if col.checkbox(info["label"], key=f"chk_{key}"):
-        selected_features.append(key)
+if checklist:
+    st.write(f"What matters to you? (detected: {detected_category.replace('_', ' ')})")
+    cols = st.columns(2)
+    checklist_items = list(checklist.items())
+    for i, (key, info) in enumerate(checklist_items):
+        col = cols[i % 2]
+        if col.checkbox(info["label"], key=f"chk_{detected_category}_{key}"):
+            selected_features.append(key)
+elif query:
+    st.caption("No specific checklist for this yet -- ranking by price positioning only.")
 
 search_clicked = st.button("Find the sweet spot", type="primary")
 
@@ -45,7 +53,7 @@ def get_listings(query: str):
     return search_tunisianet(query, max_results=50)
 
 
-def score_listings(listings, selected_features):
+def score_listings(listings, selected_features, checklist):
     WEIGHT_PRICE = 0.5
     WEIGHT_FEATURES = 0.5
 
@@ -64,7 +72,7 @@ def score_listings(listings, selected_features):
             price_score = 1 - ((l.price_tnd - min_price) / price_range)
             feats = extract_features(f"{l.name} {l.description}")
             for key in selected_features:
-                if CHECKLIST[key]["check"](feats):
+                if checklist[key]["check"](feats):
                     matched.append(key)
             feature_score = len(matched) / len(selected_features)
             value_score = WEIGHT_PRICE * price_score + WEIGHT_FEATURES * feature_score
@@ -95,7 +103,7 @@ if search_clicked:
                 f"or Tunisianet's page structure may have changed."
             )
         else:
-            scored = score_listings(listings, selected_features)
+            scored = score_listings(listings, selected_features, checklist)
             prices = [l.price_tnd for l in listings]
 
             st.success(f"Found {len(listings)} listings")
@@ -115,7 +123,7 @@ if search_clicked:
                     cols[0].caption(l.description)
                     cols[1].metric("Price", f"{l.price_tnd:.3f} DT")
                     if selected_features:
-                        matched_labels = [CHECKLIST[k]["label"] for k in entry["matched"]]
+                        matched_labels = [checklist[k]["label"] for k in entry["matched"]]
                         st.caption(
                             f"Score: {entry['value_score']:.2f}  |  "
                             f"Matched {len(entry['matched'])}/{len(selected_features)}: "
