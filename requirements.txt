@@ -1,3 +1,6 @@
 requests
 beautifulsoup4
 streamlit
+# Note: ai_checklist.py calls the Anthropic API directly via requests
+# (already listed above) rather than the anthropic SDK, to keep
+# dependencies minimal.
