@@ -10,9 +10,18 @@ Run locally with:  streamlit run app.py
 import streamlit as st
 from statistics import median, mean
 
+import streamlit as st
+import os
+from statistics import median, mean
+
 from scrapers.tunisianet import search_tunisianet
 from features import get_checklist, detect_category, extract_features
 
+# Streamlit Cloud stores secrets in st.secrets -- mirror it into a plain
+# environment variable so ai_checklist.py (a plain script, not Streamlit-
+# aware) can read it the normal way.
+if "ANTHROPIC_API_KEY" in st.secrets:
+    os.environ["ANTHROPIC_API_KEY"] = st.secrets["ANTHROPIC_API_KEY"]
 
 st.set_page_config(page_title="ValueScout", page_icon="🔎", layout="centered")
 
@@ -27,22 +36,28 @@ query = st.text_input(
 )
 
 # The checklist shown depends on what category the search term looks
-# like -- "casque bluetooth" shows headphone checkboxes, "souris"
-# shows mouse checkboxes, etc. See features.py CATEGORY_DETECTION.
+# like. Power bank/casque/souris use fast, free, hand-tuned logic.
+# Anything else falls back to an AI-generated checklist (cached after
+# the first search for that term, see ai_checklist.py).
 detected_category = detect_category(query) if query else None
-checklist = get_checklist(detected_category)
+checklist = get_checklist(detected_category, query) if query else {}
 
 selected_features = []
 if checklist:
-    st.write(f"What matters to you? (detected: {detected_category.replace('_', ' ')})")
+    label = detected_category.replace("_", " ") if detected_category else "AI-suggested"
+    st.write(f"What matters to you? ({label})")
     cols = st.columns(2)
     checklist_items = list(checklist.items())
     for i, (key, info) in enumerate(checklist_items):
         col = cols[i % 2]
-        if col.checkbox(info["label"], key=f"chk_{detected_category}_{key}"):
+        if col.checkbox(info["label"], key=f"chk_{query}_{key}"):
             selected_features.append(key)
 elif query:
-    st.caption("No specific checklist for this yet -- ranking by price positioning only.")
+    st.caption(
+        "No checklist available for this search -- ranking by price "
+        "positioning only. (If this persists, ANTHROPIC_API_KEY may not "
+        "be configured -- see app.py's comments.)"
+    )
 
 search_clicked = st.button("Find the sweet spot", type="primary")
 
@@ -68,11 +83,11 @@ def score_listings(listings, selected_features, checklist):
     scored = []
     for l in listings:
         matched = []
+        full_text = f"{l.name} {l.description}"
         if selected_features:
             price_score = 1 - ((l.price_tnd - min_price) / price_range)
-            feats = extract_features(f"{l.name} {l.description}")
             for key in selected_features:
-                if checklist[key]["check"](feats):
+                if checklist[key]["check"](full_text):
                     matched.append(key)
             feature_score = len(matched) / len(selected_features)
             value_score = WEIGHT_PRICE * price_score + WEIGHT_FEATURES * feature_score
