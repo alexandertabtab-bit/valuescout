@@ -95,72 +95,74 @@ def extract_features(description: str) -> ProductFeatures:
 
 
 # Per-category checklists. Each entry maps a friendly label to a
-# function that checks ProductFeatures and returns True/False.
+# function that checks a listing's raw text (name + description) and
+# returns True/False. Same interface as ai_checklist.py's generated
+# checklists, so the app can treat both the same way.
 CATEGORY_CHECKLISTS = {
     "power_bank": {
         "fast_charging": {
             "label": "Fast charging (18W or more)",
-            "check": lambda f: f.max_watts is not None and f.max_watts >= 18,
+            "check": lambda t: (lambda f: f.max_watts is not None and f.max_watts >= 18)(extract_features(t)),
         },
         "high_capacity": {
             "label": "High capacity (20,000mAh or more)",
-            "check": lambda f: f.max_mah is not None and f.max_mah >= 20000,
+            "check": lambda t: (lambda f: f.max_mah is not None and f.max_mah >= 20000)(extract_features(t)),
         },
         "multi_device": {
             "label": "Can charge multiple devices at once",
-            "check": lambda f: f.is_multi_port,
+            "check": lambda t: extract_features(t).is_multi_port,
         },
         "usb_c": {
             "label": "USB-C support",
-            "check": lambda f: f.has_usb_c,
+            "check": lambda t: extract_features(t).has_usb_c,
         },
         "safety_protection": {
             "label": "Overcharge / short-circuit protection",
-            "check": lambda f: f.has_protection,
+            "check": lambda t: extract_features(t).has_protection,
         },
         "included_cable": {
             "label": "Comes with a built-in/included cable",
-            "check": lambda f: f.has_included_cable,
+            "check": lambda t: extract_features(t).has_included_cable,
         },
     },
     "casque": {
         "bluetooth": {
             "label": "Bluetooth / wireless",
-            "check": lambda f: f.has_bluetooth,
+            "check": lambda t: extract_features(t).has_bluetooth,
         },
         "noise_cancelling": {
             "label": "Noise cancelling",
-            "check": lambda f: f.has_noise_cancelling,
+            "check": lambda t: extract_features(t).has_noise_cancelling,
         },
         "microphone": {
             "label": "Built-in microphone",
-            "check": lambda f: f.has_microphone,
+            "check": lambda t: extract_features(t).has_microphone,
         },
         "long_battery": {
             "label": "Long battery life (20+ hours)",
-            "check": lambda f: f.max_battery_hours is not None and f.max_battery_hours >= 20,
+            "check": lambda t: (lambda f: f.max_battery_hours is not None and f.max_battery_hours >= 20)(extract_features(t)),
         },
         "water_resistant": {
             "label": "Water/sweat resistant",
-            "check": lambda f: f.is_water_resistant,
+            "check": lambda t: extract_features(t).is_water_resistant,
         },
     },
     "souris": {
         "wireless": {
             "label": "Wireless",
-            "check": lambda f: f.is_wireless,
+            "check": lambda t: extract_features(t).is_wireless,
         },
         "rgb": {
             "label": "RGB lighting",
-            "check": lambda f: f.has_rgb,
+            "check": lambda t: extract_features(t).has_rgb,
         },
         "high_dpi": {
             "label": "High precision (8000+ DPI)",
-            "check": lambda f: f.max_dpi is not None and f.max_dpi >= 8000,
+            "check": lambda t: (lambda f: f.max_dpi is not None and f.max_dpi >= 8000)(extract_features(t)),
         },
         "usb_c_charging": {
             "label": "USB-C charging",
-            "check": lambda f: f.has_usb_c,
+            "check": lambda t: extract_features(t).has_usb_c,
         },
     },
 }
@@ -187,11 +189,22 @@ def detect_category(query: str) -> Optional[str]:
     return None
 
 
-def get_checklist(category: Optional[str]) -> dict:
-    """Returns the checklist dict for a category, or empty dict if unknown."""
-    if category is None:
-        return {}
-    return CATEGORY_CHECKLISTS.get(category, {})
+def get_checklist(category: Optional[str], query: str = "") -> dict:
+    """
+    Returns the checklist dict for a category. If it's one of the
+    hand-coded categories (power_bank, casque, souris), returns that
+    immediately -- fast, free, no API call. Otherwise, falls back to
+    asking the AI to generate one for the raw query, so ANY search
+    term gets relevant checkboxes, not just the ones I hand-coded.
+    """
+    if category is not None and category in CATEGORY_CHECKLISTS:
+        return CATEGORY_CHECKLISTS[category]
+
+    if query:
+        import ai_checklist
+        return ai_checklist.get_or_generate_checklist(query)
+
+    return {}
 
 
 if __name__ == "__main__":
