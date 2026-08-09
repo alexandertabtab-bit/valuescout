@@ -1,33 +1,25 @@
 """
 Scraper for tunisianet.com.tn
 
-CONFIRMED WORKING as of this session -- selectors below were verified
-against live HTML, not guessed:
+CONFIRMED WORKING -- both the search endpoint and selectors below were
+verified against live HTML, not guessed:
+
+  - search URL:    tunisianet.com.tn/recherche?s=YOUR+TERM
+                    (confirmed working for arbitrary terms, e.g.
+                    "power bank", "casque bluetooth" -- not limited to
+                    pre-mapped categories)
   - product card:  article.product-miniature
   - name:          h2.product-title a
-  - description:   div.descrip a   (this text contains the specs --
-                    mAh, W, ports, protections -- useful later for the
-                    checkbox-matching feature)
+  - description:   div.descrip a   (contains specs -- mAh, W, ports,
+                    protections -- used by features.py)
   - price:         span.price   (format: "29,000 DT")
-
-Also confirmed: the free-text search endpoint
-(/recherche?controller=search&s=...) returned 0 results for a query
-that likely just had no matches -- it's not necessarily broken. But
-category pages are the reliable, verified path, and they come with
-free bonus data: real brand and capacity (mAh) filters baked into the
-page, which map nicely onto the "6 checkboxes" feature idea.
-
-This scraper browses a known category page rather than free-text
-searching, since that's what's actually been verified end-to-end.
-CATEGORY_URLS below currently only has power bank mapped -- add more
-categories as you need them (visit the site, browse to the category,
-copy its URL).
 """
 
 import requests
 from bs4 import BeautifulSoup
 from dataclasses import dataclass
-from typing import List, Optional
+from typing import List
+from urllib.parse import quote_plus
 
 HEADERS = {
     # A normal browser user-agent avoids being blocked as an obvious bot.
@@ -38,11 +30,7 @@ HEADERS = {
     )
 }
 
-# Map a friendly category name to its real Tunisianet category URL.
-# Add more by browsing the category on the site and copying the URL.
-CATEGORY_URLS = {
-    "power bank": "https://www.tunisianet.com.tn/636-power-bank-tunisie",
-}
+SEARCH_URL = "https://www.tunisianet.com.tn/recherche"
 
 SELECTORS = {
     "product_card": "article.product-miniature",
@@ -72,8 +60,14 @@ def _parse_price(raw: str) -> float:
         return float(digits) if digits else 0.0
 
 
-def _scrape_page(url: str, max_results: int) -> List[ProductListing]:
-    resp = requests.get(url, headers=HEADERS, timeout=15)
+def search_tunisianet(query: str, max_results: int = 24) -> List[ProductListing]:
+    """
+    Searches Tunisianet for any term via its real search page (24 results
+    per page -- pagination isn't implemented here, but could be added by
+    requesting &page=2, &page=3, etc. if you want more than 24 results).
+    """
+    params = {"s": query}
+    resp = requests.get(SEARCH_URL, params=params, headers=HEADERS, timeout=15)
     resp.raise_for_status()
     soup = BeautifulSoup(resp.text, "html.parser")
 
@@ -93,20 +87,6 @@ def _scrape_page(url: str, max_results: int) -> List[ProductListing]:
             url=name_el.get("href", ""),
         ))
     return results
-
-
-def search_tunisianet(query: str, max_results: int = 24) -> List[ProductListing]:
-    """
-    Looks up `query` in CATEGORY_URLS and scrapes that category page.
-    If the query isn't a known category yet, returns an empty list --
-    add the category's real URL to CATEGORY_URLS to support it.
-    """
-    category_url = CATEGORY_URLS.get(query.lower().strip())
-    if not category_url:
-        print(f"[info] '{query}' isn't in CATEGORY_URLS yet. "
-              f"Browse to it on tunisianet.com.tn and add its URL.")
-        return []
-    return _scrape_page(category_url, max_results)
 
 
 if __name__ == "__main__":
